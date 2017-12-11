@@ -54,7 +54,7 @@ int main(int argc, char** argv)
 
     /* Listen */
     listen(sockfd, 5);
-    printf("Listening on %s:%d", &server_addr.sin_addr.s_addr, port_no);
+    printf("Listening on %s:%d\n", &server_addr.sin_addr.s_addr, port_no);
 
     client_len = sizeof(client_addr);
 
