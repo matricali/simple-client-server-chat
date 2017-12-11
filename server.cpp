@@ -2,9 +2,13 @@
 #include <stdlib.h>
 #include <string>
 #include <vector>
+#include <thread>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+
+/* Definitions */
+#define DEFAULT_BUFLEN 256
 
 /* Declarations */
 struct client_type
@@ -14,12 +18,74 @@ struct client_type
 };
 
 const int INVALID_SOCKET = -1;
+const int SOCKET_ERROR = -1;
 const int MAX_CLIENTS = 5;
 
 
 /* Function prototypes */
-// ...
+int process_client(
+    client_type &new_client,
+    std::vector<client_type> &client_array,
+    std::thread &thread
+);
 
+int process_client(
+    client_type &new_client,
+    std::vector<client_type> &client_array,
+    std::thread &thread
+)
+{
+    std::string msg = "";
+    char tempmsg[DEFAULT_BUFLEN] = "";
+
+    /* Session */
+    while (true) {
+        memset(tempmsg, 0, DEFAULT_BUFLEN);
+
+        if (new_client.sockfd != 0) {
+            int iResult = recv(new_client.sockfd, tempmsg, DEFAULT_BUFLEN, 0);
+
+            if (iResult != SOCKET_ERROR) {
+                if (strcmp("", tempmsg)) {
+                    msg = "Client #" + std::to_string(new_client.id) + ": " + tempmsg;
+                }
+
+                printf("%s\n", msg.c_str());
+
+                /* Broadcast that message to the other clients */
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (client_array[i].sockfd != INVALID_SOCKET) {
+                        if (new_client.id != i) {
+                            iResult = send(client_array[i].sockfd, msg.c_str(), strlen(msg.c_str()), 0);
+                        }
+                    }
+                }
+            } else {
+                msg = "Client #" + std::to_string(new_client.id) + " Disconnected";
+
+                printf("%s\n", msg.c_str());
+
+                close(new_client.sockfd);
+                close(client_array[new_client.id].sockfd);
+                client_array[new_client.id].sockfd = INVALID_SOCKET;
+
+                /* Broadcast the disconnection message to the other clients */
+                for (int i = 0; i < MAX_CLIENTS; i++)
+                {
+                    if (client_array[i].sockfd != INVALID_SOCKET) {
+                        iResult = send(client_array[i].sockfd, msg.c_str(), strlen(msg.c_str()), 0);
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
+    thread.detach();
+
+    return 0;
+}
 
 int main(int argc, char** argv)
 {
@@ -30,9 +96,9 @@ int main(int argc, char** argv)
     struct sockaddr_in server_addr;
     struct sockaddr_in client_addr;
     socklen_t client_len;
-    char buffer[256];
     std::vector<client_type> client(MAX_CLIENTS);
     std::string msg = "";
+    std::thread client_threads[MAX_CLIENTS];
 
     /* Banner */
     fprintf(stdout, "simple-chat-server v0.0.1-alpha\n");
@@ -75,7 +141,9 @@ int main(int argc, char** argv)
 
     /* Listen */
     listen(sockfd, 5);
-    printf("Listening on %s:%d\n", &server_addr.sin_addr.s_addr, port_no);
+    char local_host[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(server_addr.sin_addr), local_host, INET_ADDRSTRLEN);
+    printf("Listening on %s:%d\n", local_host, port_no);
 
     /* Initialize the client list */
     for (int i = 0; i < MAX_CLIENTS; i++)
@@ -112,7 +180,6 @@ int main(int argc, char** argv)
         }
 
         if (temp_id != -1) {
-
             char remote_host[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &(client_addr.sin_addr), remote_host, INET_ADDRSTRLEN);
             printf(
@@ -127,32 +194,35 @@ int main(int argc, char** argv)
             send(client[temp_id].sockfd, msg.c_str(), strlen(msg.c_str()), 0);
 
             /* Create a thread process for that client */
-            // my_thread[temp_id] = std::thread(process_client, std::ref(client[temp_id]), std::ref(client), std::ref(my_thread[temp_id]));
+            client_threads[temp_id] = std::thread(
+                process_client,
+                std::ref(client[temp_id]),
+                std::ref(client),
+                std::ref(client_threads[temp_id])
+            );
         } else {
+            /* The server is full :( */
             msg = "Server is full";
             send(incoming, msg.c_str(), strlen(msg.c_str()), 0);
-            printf("%s\n", msg.c_str());
+
+            char remote_host[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(client_addr.sin_addr), remote_host, INET_ADDRSTRLEN);
+            printf(
+                "Connection rejected to %s:%d (Client #%d). The server is full!\n",
+                remote_host,
+                ntohs(client_addr.sin_port),
+                client[temp_id].id
+            );
+
+            /* Close connection */
+            close(client[temp_id].sockfd);
         }
-        //
-        // /* Sending hello :D */
-        // send(incoming, "Hello :D\n", 9, 0);
-        //
-        // bzero(buffer, 256);
-        //
-        // int n;
-        // n = read(incoming, buffer, 255);
-        // if (n < 0) {
-        //     fprintf(stderr, "ERROR reading from socket\n");
-        //     return -5;
-        // }
-        //
-        // printf("Message received: %s\n", buffer);
     }
 
     /* Closing */
     close(sockfd);
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        // my_thread[i].detach();
+        client_threads[i].detach();
         close(client[i].sockfd);
     }
 
