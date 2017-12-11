@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := all
 
-CC=gcc
+CC=g++
 CFLAGS=-Wall
 
 server:

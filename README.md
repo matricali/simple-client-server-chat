@@ -4,5 +4,5 @@ A simple socket and threading implementation which creates a chat server able to
 
 # Requirements
 
-1. `gcc` compiler
+1. `g++` compiler
 2. A text editor
